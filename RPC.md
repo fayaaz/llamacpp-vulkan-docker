@@ -122,7 +122,6 @@ Observations and tuning recommendations targeted at your pair:
 
 1. **Same worker+server build**: RPC and server must be the same GGML ABI version. We build both from the same image (`ghcr.io/fayaaz/llama-cpp-vulkan-rpc:latest`). If Arches ever uses a different tag, hang or sudden decode stalls are the first symptom. Pin by digest, not `latest`, before production use.
 
-2. **worker memory cap**: the helm pod in `chart/templates/rpc-deployment.yaml` now advertises `-m 7800` to the pool so the master reserves KV/draft/mmproj for local weights instead of spilling to system RAM.
 
 3. **layer split is the model, not the VRAM**: with `--split-mode layer`, llama.cpp assigns whole layers (and KV blocks) to each device proportionally to how `--fit` computes the budget. There is no tensor chunking within a matmul — the RPC device gets separate fused operations, not half a GEMM. So inter-machine RPC does not trade the same way as an MTP draft would.
 
