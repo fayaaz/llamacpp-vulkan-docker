@@ -1,0 +1,47 @@
+{{- if .Values.rpc.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-rpc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-rpc
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-rpc
+    spec:
+      containers:
+        - name: rpc-server
+          image: {{ .Values.rpc.image }}
+          imagePullPolicy: Always
+          command:
+            - /app/ggml-rpc-server
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "{{ .Values.rpc.port }}"
+            - -m
+            - "7800"
+          ports:
+            - containerPort: {{ .Values.rpc.port }}
+              name: rpc
+          env:
+            {{- range $k, $v := .Values.server.env }}
+            - name: {{ $k }}
+              value: "{{ $v }}"
+            {{- end }}
+          resources:
+            requests:
+              cpu: "2"
+              memory: "1Gi"
+            limits:
+              cpu: "6"
+              memory: "12Gi"
+          securityContext:
+            privileged: {{ .Values.rpc.privileged }}
+      nodeSelector:
+        amd.com/gpu: "true"
+{{- end }}

@@ -115,3 +115,25 @@ Dropping `cache-type-k` to `q4_0` roughly halves the Q8 half of KV and buys a co
 - llama.cpp RPC has no authentication and should not be exposed beyond the LAN (the `ggml-rpc-server` binary prints that warning itself).
 - The RPC worker does not need model files. Only the GGUF + mmproj on the master node matter. `--fit` converges to a layer split without consulting the RPC node's disk.
 - Draft-KV is incremental. If you tie a draft model that doesn't fit, the router loads it before the target weights and you can OOM that slot; keep it small (MTP Q4_0 is only ~1.9 GiB).
+
+## Improving RPC performance (from the SharedLLM post and upstream PR state)
+
+Observations and tuning recommendations targeted at your pair:
+
+1. **Same worker+server build**: RPC and server must be the same GGML ABI version. We build both from the same image (`ghcr.io/fayaaz/llama-cpp-vulkan-rpc:latest`). If Arches ever uses a different tag, hang or sudden decode stalls are the first symptom. Pin by digest, not `latest`, before production use.
+
+2. **worker memory cap**: the helm pod in `chart/templates/rpc-deployment.yaml` now advertises `-m 7800` to the pool so the master reserves KV/draft/mmproj for local weights instead of spilling to system RAM.
+
+3. **layer split is the model, not the VRAM**: with `--split-mode layer`, llama.cpp assigns whole layers (and KV blocks) to each device proportionally to how `--fit` computes the budget. There is no tensor chunking within a matmul — the RPC device gets separate fused operations, not half a GEMM. So inter-machine RPC does not trade the same way as an MTP draft would.
+
+4. **Draft offload**: MTP drafts are strictly profitable because the main LLM is the bottleneck for tokens. On primary, make sure the draft stays local: for the base Q4_K_M profile we use the separate `mtp-Qwen3.8-27B-Q4_0.gguf` (≈1.9 GiB); the uncensored GGUF fuses the draft into the main file. Both go through RPC when `split-mode=layer` — you could pin it to slot 0 by putting it first in `tensor-split` if it benchmarks better.
+
+5. **Context size**: Q6_K at 131k is tight (~25 GiB); measured on combined 9700 XT + 6600 XT it spills to RAM or glued layers and decodes at ~19 t/s. For Q6, stay at 65k. For Q5, Q4, IQ4, 131k is achievable.
+
+6. **Network is 900–950 MB/s**: RPC hides behind the GPU streams; raw LAN bandwidth isn't the decode-performance limiter. The decode path is latency-bound per layer, so moving the worker closer or enabling 2.5Gbps on both ends helps prefill and graph splice more than steady decode.
+
+7. **No `--n-cpu-moe` mixing**: with RPC and a single layer split, MoE weights must live on one device's allocation; we did not blend `--n-cpu-moe` into the same profile as RPC (keep separate sections).
+
+8. **Relevant upstream PRs**:
+   - ggml-org/llama.cpp#8032 — RPC buffer hibernation (not yet merged)
+   - ggml-org/llama.cpp#24524 — CUDA-only MoE expert cache prototype (not merged, CUDA-only)
