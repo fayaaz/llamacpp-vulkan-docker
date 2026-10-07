@@ -5,7 +5,7 @@ This repository provides a `docker-compose.yml` configuration to run a `llama.cp
 This has been tested on a PC with specs:
 - CPU: 9950X3D
 - RAM: 64GB
-- GPU: 9700 XT with 16GB VRAM
+- GPU: 9070 XT with 16GB VRAM
 
 and is focused around running Qwen3.8-27B and the Qwen3.6-35B-A3B MoE.
 
